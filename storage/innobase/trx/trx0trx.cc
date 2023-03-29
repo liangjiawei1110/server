@@ -385,9 +385,10 @@ void trx_t::free()
 
   dict_operation= false;
   trx_sys.deregister_trx(this);
+  check_unique_secondary= true;
+  check_foreigns= true;
   assert_freed();
   trx_sys.rw_trx_hash.put_pins(this);
-
   mysql_thd= nullptr;
 
   // FIXME: We need to avoid this heap free/alloc for each commit.
@@ -403,6 +404,7 @@ void trx_t::free()
                sizeof skip_lock_inheritance_and_n_ref);
   /* do not poison mutex */
   MEM_NOACCESS(&id, sizeof id);
+  MEM_NOACCESS(&max_inactive_id, sizeof id);
   MEM_NOACCESS(&state, sizeof state);
   MEM_NOACCESS(&is_recovered, sizeof is_recovered);
 #ifdef WITH_WSREP
@@ -1377,6 +1379,8 @@ void trx_t::commit_cleanup()
   state= TRX_STATE_NOT_STARTED;
   mod_tables.clear();
 
+  check_foreigns= true;
+  check_unique_secondary= true;
   assert_freed();
   trx_init(this);
   mutex.wr_unlock();

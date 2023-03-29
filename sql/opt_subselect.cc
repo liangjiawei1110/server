@@ -3495,10 +3495,15 @@ bool Firstmatch_picker::check_qep(JOIN *join,
             An important special case: only one inner table, and
             @@optimizer_switch allows join buffering.
              - read_time is the same (i.e. FirstMatch doesn't add any cost
-             - remove fanout added by the last table
+             - remove fanout added by the last table)
           */
           if (*record_count)
             *record_count /= join->positions[idx].records_out;
+          /*
+            Remember this choice for
+            fix_semijoin_strategies_for_picked_join_order()
+          */
+          join->positions[idx].firstmatch_with_join_buf= 1;
         }
         else
         {
@@ -4108,7 +4113,8 @@ void fix_semijoin_strategies_for_picked_join_order(JOIN *join)
         {
           trace_one_table.add_table_name(join->best_positions[idx].table);
         }
-        if (join->best_positions[idx].use_join_buffer)
+        if (join->best_positions[idx].use_join_buffer &&
+            !join->best_positions[idx].firstmatch_with_join_buf)
         {
            best_access_path(join, join->best_positions[idx].table,
                             rem_tables, join->best_positions, idx,
@@ -4306,6 +4312,7 @@ bool setup_sj_materialization_part1(JOIN_TAB *sjm_tab)
   }
 
   sjm->sjm_table_param.field_count= subq_select->item_list.elements;
+  sjm->sjm_table_param.func_count= sjm->sjm_table_param.field_count;
   sjm->sjm_table_param.force_not_null_cols= TRUE;
 
   if (!(sjm->table= create_tmp_table(thd, &sjm->sjm_table_param, 
@@ -5922,14 +5929,14 @@ TABLE *create_dummy_tmp_table(THD *thd)
   DBUG_ENTER("create_dummy_tmp_table");
   TABLE *table;
   TMP_TABLE_PARAM sjm_table_param;
-  sjm_table_param.init();
-  sjm_table_param.field_count= 1;
   List<Item> sjm_table_cols;
   const LEX_CSTRING dummy_name= { STRING_WITH_LEN("dummy") };
   Item *column_item= new (thd->mem_root) Item_int(thd, 1);
   if (!column_item)
     DBUG_RETURN(NULL);
 
+  sjm_table_param.init();
+  sjm_table_param.field_count= sjm_table_param.func_count= 1;
   sjm_table_cols.push_back(column_item, thd->mem_root);
   if (!(table= create_tmp_table(thd, &sjm_table_param, 
                                 sjm_table_cols, (ORDER*) 0, 
